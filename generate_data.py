@@ -1,3 +1,7 @@
+from collections import defaultdict
+import datetime
+import json
+import os
 from utils import generate_json_file
 from db_connect import execute_query
 
@@ -12,13 +16,13 @@ def generate_classes_json_files():
     classes = execute_query(get_class_query)
     
     print("-" * 70)
-    print("🏁 Starting the generation of the Data Class JSON file...")
+    print("Starting the generation of the Data Class JSON file...")
     print("-" * 70)
     
     for i in range(len(data_classes)):
         for j in range(len(classes)):
             
-            print("⏳ Generating JSON file for data class:", data_classes[i][1])
+            print("Generating JSON file for data class:", data_classes[i][1])
             
             result = {
                 "data": {
@@ -46,12 +50,12 @@ def generate_filter_json_files():
     filter_data_result = execute_query(get_filter_data_query)
     
     print("\n" + "-" * 70)
-    print("🏁 Starting the generation of the Filter JSON file...")
+    print("Starting the generation of the Filter JSON file...")
     print("-" * 70)
     
     for i in range(len(filter_data_result)):
         
-        print("⏳ Generating JSON file for filter data:", filter_data_result[i][1])
+        print("Generating JSON file for filter data:", filter_data_result[i][1])
         
         result = {
             "id": filter_data_result[i][0],
@@ -73,12 +77,12 @@ def generate_lois_json_files():
     loi_data_result = execute_query(get_loi_data_query)
         
     print("\n" + "-" * 70)
-    print("🏁 Starting the generation of the LOI JSON file...")
+    print("Starting the generation of the LOI JSON file...")
     print("-" * 70)
     
     for i in range(len(filter_data_result)):
         
-        print("⏳ Generating JSON file for loi data:", filter_data_result[i][1])
+        print("Generating JSON file for loi data:", filter_data_result[i][1])
         
         lois_list = []
         for j in range(len(loi_data_result)):            
@@ -112,7 +116,7 @@ def generate_periods_json_files():
     period_data_result = execute_query(get_period_data_query)
     
     print("\n" + "-" * 70)
-    print("🏁 Starting the generation of the Period JSON file...")
+    print("Starting the generation of the Period JSON file...")
     print("-" * 70)
     
     periods_list = []
@@ -125,18 +129,18 @@ def generate_periods_json_files():
     
     for i in range(len(filter_data_result)):  
         
-        print("⏳ Generating JSON file for period data:", filter_data_result[i][1])
+        print("Generating JSON file for period data:", filter_data_result[i][1])
         
         period_list = []    
         for period in periods_list:
             if period['id'] == filter_data_result[i][0]:                            
                 period_list.append({
-                    "start_date": {
+                    "startDate": {
                         "year": period['start_date'].year,
                         "month": period['start_date'].month,
                         "day": period['start_date'].day
                     },
-                    "end_date": {
+                    "endDate": {
                         "year": period['end_date'].year,
                         "month": period['end_date'].month,
                         "day": period['end_date'].day
@@ -166,13 +170,14 @@ def generate_loinames_json_files():
         inner join loi_loinames ll on ll.id = dll.id_loi_loinames
         inner join loi l on l.id = ll.id_loi 
         inner join loinames ln on ln.gid = ll.gid_loinames 
+        order by id
     '''    
     
     filter_data_result = execute_query(get_filter_data_query)
     loinames_data_result = execute_query(get_loinames_data_query)
     
     print("\n" + "-" * 70)
-    print("🏁 Starting the generation of the LOI Names JSON file...")
+    print("Starting the generation of the LOI Names JSON file...")
     print("-" * 70)
     
     for filtered_item in filter_data_result:
@@ -221,12 +226,88 @@ def generate_loinames_json_files():
         }
         
         json_filename = f"{filtered_item[1].lower().replace(' ', '_')}.json"
-        generate_json_file(result_json, output_dir, json_filename)
+        generate_json_file(result_json, output_dir, json_filename)           
+
+def generate_data_json_files():
+
+    print("\n" + "-" * 70)
+    print("Starting the generation of JSON files from the data folder...")
+    print("-" * 70)
+
+    output_dir = './output/data'
+
+    get_periods_and_dates_query = 'select id as period_id, id_data from "period" p'
+    periods_and_dates = execute_query(get_periods_and_dates_query)
+
+    save_results = {}
     
+    for period, data_class in periods_and_dates:
+        query = f'''
+            SELECT f.id_data_class, d."name", c."name", dc.id_class, ll.id_loi, f.id_period, p.start_date, p.end_date, 
+                f.id_data_loi_loinames, SUM(f.area_km2) AS total_area_km2
+            FROM features f
+            JOIN period p ON p.id = f.id_period
+            JOIN data_class dc ON f.id_data_class = dc.id
+            JOIN data d ON d.id = dc.id_data
+            JOIN class c ON c.id = dc.id_class
+            JOIN loi_loinames ll on ll.id = f.id_data_loi_loinames
+            WHERE f.id_period = {int(period)} AND f.id_data_class = {int(data_class)}
+            GROUP BY f.id_data_class, d."name", c."name", dc.id_class, ll.id_loi, f.id_period, p.start_date, p.end_date, f.id_data_loi_loinames
+        '''
+               
+        data_result = execute_query(query)
+        
+        if data_result:
+            if data_class not in save_results:
+                save_results[data_class] = []
+            save_results[data_class].extend(data_result)
     
+    for data_id, data_info in save_results.items():
+        periods_dict = defaultdict(lambda: {"startDate": {}, "endDate": {}, "features": []})
+        output = {}
+        
+        for item in data_info:
+            (data_class, name, clazz, class_id,  id_loi, period, start_date, end_date, loi, area) = item
+            
+            output["name"] = name
+            output["clazz"] = clazz
+            
+            period_key = (start_date, end_date)
+            if not periods_dict[period_key]["startDate"]:
+                periods_dict[period_key]["startDate"] = {
+                    "year": start_date.year,
+                    "month": start_date.month,
+                    "day": start_date.day
+                }
+                periods_dict[period_key]["endDate"] = {
+                    "year": end_date.year,
+                    "month": end_date.month,
+                    "day": end_date.day
+                }
+            
+            feature = {
+                "loi": id_loi,
+                "loiname": loi,
+                "areas": [{"type": class_id, "area": area}]
+            }
+            
+            periods_dict[period_key]["features"].append(feature)
+        
+        output["periods"] = [
+            period for _, period in sorted(
+                periods_dict.items(),
+                key=lambda item: (item[0][0], item[0][1])
+            )
+        ]
+        
+        json_filename = f"{name.lower().replace(' ', '_')}.json"
+        generate_json_file(output, output_dir, json_filename)
+
+
 if __name__ == "__main__":
     generate_classes_json_files()
     generate_filter_json_files()
     generate_lois_json_files()
     generate_periods_json_files()
     generate_loinames_json_files()
+    generate_data_json_files()

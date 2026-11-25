@@ -23,7 +23,7 @@ def generate_json_file(data, output_dir, filename):
         create_output_dir(output_dir)
         file_path = os.path.join(output_dir, filename)
         write_json_to_file(file_path, data)
-        print(f"✅ {filename} JSON file successfully generated!")
+        print(f"{filename} JSON file successfully generated!")
     except Exception as e:
         print(e)
         print(f"\nError generating {filename} JSON file!\n")
